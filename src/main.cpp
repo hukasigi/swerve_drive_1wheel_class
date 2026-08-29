@@ -205,11 +205,11 @@ Drive          drive(&drive_motor, &drive_pid);
 
 SwerveDrive swerve_drive(&drive, &steering);
 
-// 制御ループを回すタスク
 void control_loop_task(void* args) {
-    TickType_t wake_time;
+    TickType_t wake_time = xTaskGetTickCount();
+
     while (true) {
-        swerve_drive.update(CONTROL_CYCLE_MS / 1000.);
+        swerve_drive.update(CONTROL_CYCLE_MS / 1000.0);
         vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(CONTROL_CYCLE_MS));
     }
 }
