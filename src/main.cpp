@@ -19,6 +19,7 @@ class Steering {
             double startTime = micros();
             this->motor->run(CALIBRATING_DUTY);
             if (this->limit_switch->active()) { // ONから始まったら、一度OFFになるまで待つ
+                this->motor->run(-CALIBRATING_DUTY);
                 while (this->limit_switch->active()) {
                     if (millis() - startTime > CALIBRATING_TIMEOUT_MS) {
                         this->motor->stop();
@@ -27,8 +28,9 @@ class Steering {
                 }
                 this->motor->stop();
                 this->encoder->clear();
-                return true;
+                this->motor->run(CALIBRATING_DUTY);
             }
+
             while (!this->limit_switch->active()) { // OFF→ONになるまで待つ
                 if (millis() - startTime > CALIBRATING_TIMEOUT_MS) {
                     this->motor->stop();
@@ -57,7 +59,7 @@ class Steering {
 
         double target_degree;
 
-        static const uint32_t   CALIBRATING_DUTY                = 150;
+        static const int32_t    CALIBRATING_DUTY                = 150;
         static const uint32_t   CALIBRATING_TIMEOUT_MS          = 8000;
         static const uint32_t   ENCODER_RESOLUTION              = 8192;
         static constexpr double STEER_GEAR_RATIO_MOTOR_TO_STEER = 65.0 / 27.0;
