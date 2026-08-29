@@ -16,7 +16,7 @@ class Steering {
             this->target_degree = 0;
         }
         bool calibrate_zero() { // 0点合わせ
-            double startTime = micros();
+            double startTime = millis();
             this->motor->run(CALIBRATING_DUTY);
             if (this->limit_switch->active()) { // ONから始まったら、一度OFFになるまで待つ
                 this->motor->run(-CALIBRATING_DUTY);
