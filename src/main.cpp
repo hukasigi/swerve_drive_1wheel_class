@@ -290,7 +290,7 @@ void loop() {
 
     if (stickMag <= STICK_DEADZONE) {
         swerve_drive.set_target(steering.get_current_degree(), 0.0);
-
+        drive_pid.reset();
         delay(10);
         return;
     }
