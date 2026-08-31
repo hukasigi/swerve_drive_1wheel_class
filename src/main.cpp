@@ -8,12 +8,13 @@ using namespace nnct::interfaces;
 
 class Steering {
     public:
-        Steering(Motor* motor, IncrementalEncoder* encoder, LimitSwitch* limit_switch, AnglePID* pid) {
+        Steering(Motor* motor, IncrementalEncoder* encoder, LimitSwitch* limit_switch, AnglePID* pid, double offset_deg) {
             this->motor         = motor;
             this->encoder       = encoder;
             this->limit_switch  = limit_switch;
             this->pid           = pid;
             this->target_degree = 0;
+            this->offset_degree = offset_deg;
         }
         bool calibrate_zero() { // 0点合わせ
             uint32_t startTime = millis();
@@ -45,13 +46,10 @@ class Steering {
         double get_current_degree() {
             double degree = (encoder->getCount() * 360.0 / ENCODER_RESOLUTION) / STEER_GEAR_RATIO_MOTOR_TO_STEER;
 
-            while (degree > 180.0)
-                degree -= 360.0;
+            // offset を角度計算時に補正
+            degree -= this->offset_degree;
 
-            while (degree < -180.0)
-                degree += 360.0;
-
-            return degree;
+            return normalizeAngleDeg(degree);
         }
         void update(double dt) {
             double current_degree = this->get_current_degree();
@@ -62,12 +60,21 @@ class Steering {
         }
 
     private:
+        static double normalizeAngleDeg(double a) {
+            while (a > 180.0)
+                a -= 360.0;
+            while (a < -180.0)
+                a += 360.0;
+            return a;
+        }
+
         Motor*              motor;
         IncrementalEncoder* encoder;
         LimitSwitch*        limit_switch;
         AnglePID*           pid;
 
         double target_degree;
+        double offset_degree;
 
         static const int32_t    CALIBRATING_DUTY                = 150;
         static const uint32_t   CALIBRATING_TIMEOUT_MS          = 8000;
@@ -200,6 +207,8 @@ const pin_t STEERING_LIMIT_SW  = 36;
 const pin_t CAN_RX_PIN         = 4; // 実際の配線に合わせて変更
 const pin_t CAN_TX_PIN         = 5; // 実際の配線に合わせて変更
 
+const double OFFSET_1 = 315.;
+
 const int16_t STEER_MOTOR_POWER_LIMIT = 200.;
 const int16_t STEER_INTEGRAL_LIMIT    = 10.;
 const int16_t RANGE                   = 360;
@@ -224,7 +233,7 @@ IncrementalEncoder steering_encoder(STEERING_ENCODER_A, STEERING_ENCODER_B);
 LimitSwitch        steering_limit_switch(STEERING_LIMIT_SW);
 AnglePID steering_pid(STEERING_PID_PARAM.p_gain, STEERING_PID_PARAM.i_gain, STEERING_PID_PARAM.d_gain, -STEER_MOTOR_POWER_LIMIT,
                       STEER_MOTOR_POWER_LIMIT, -STEER_INTEGRAL_LIMIT, STEER_INTEGRAL_LIMIT, RANGE);
-Steering steering(&steering_motor, &steering_encoder, &steering_limit_switch, &steering_pid);
+Steering steering(&steering_motor, &steering_encoder, &steering_limit_switch, &steering_pid, OFFSET_1);
 
 RobomasMotor   drive_motor(DRIVE_MOTOR_ID);
 RobomasCAN     can(CAN_RX_PIN, CAN_TX_PIN);
@@ -247,16 +256,6 @@ void control_loop_task(void* args) {
         vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(CONTROL_CYCLE_MS));
     }
 }
-// void control_loop_task(void* args) {
-//     while (true) {
-//         swerve_drive.update(0.01);
-//         if (!can.send(&drive_motor)) {
-//             Serial.println("Drive CAN send failed");
-//         }
-
-//         vTaskDelay(pdMS_TO_TICKS(10));
-//     }
-// }
 
 void setup() {
     Serial.begin(115200);
