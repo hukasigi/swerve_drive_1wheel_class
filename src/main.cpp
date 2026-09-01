@@ -152,19 +152,6 @@ class SwerveDrive {
                 a += 360.0;
             return a;
         }
-        // static OptimizedParams optimizeSteerAngle(double steer_target, double currentAngleDeg) {
-        //     const double    error = normalizeAngleDeg(steer_target - currentAngleDeg);
-        //     OptimizedParams result{steer_target, 1};
-
-        //     if (error > 90.0) {
-        //         result.degree    = normalizeAngleDeg(steer_target - 180.0);
-        //         result.drive_dir = -1;
-        //     } else if (error < -90.0) {
-        //         result.degree    = normalizeAngleDeg(steer_target + 180.0);
-        //         result.drive_dir = -1;
-        //     }
-        //     return result;
-        // }
         static OptimizedParams optimizeSteerAngle(double steer_target, double currentAngleDeg) {
             double error = normalizeAngleDeg(steer_target - currentAngleDeg);
 
@@ -213,7 +200,7 @@ const int16_t STEER_MOTOR_POWER_LIMIT = 200.;
 const int16_t STEER_INTEGRAL_LIMIT    = 10.;
 const int16_t RANGE                   = 360;
 
-const int16_t DRIVE_MOTOR_POWER_LIMIT = 50.;
+const int16_t DRIVE_MOTOR_POWER_LIMIT = 200.;
 const int16_t DRIVE_INTEGRAL_LIMIT    = 10.;
 
 const double STICK_DEADZONE       = 15.0;
