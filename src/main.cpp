@@ -56,6 +56,8 @@ class Steering {
             double duty           = this->pid->update(this->target_degree, current_degree, dt);
             double error          = pid->getError();
 
+            Serial.printf("current_deg%f target_deg_f%f", current_degree, target_degree);
+
             this->motor->run(duty, -1);
         }
 
@@ -99,6 +101,7 @@ class Drive {
             double current_mm_s = this->get_current_mm_s();
             double drive_duty   = this->pid->update(this->target_mm_s, current_mm_s, dt);
             this->motor->run(drive_duty);
+            Serial.printf("rpm=%d target=%f current=%f\n", this->motor->rpm(), this->target_mm_s, current_mm_s);
         }
 
     private:
@@ -200,15 +203,15 @@ const int16_t STEER_MOTOR_POWER_LIMIT = 200.;
 const int16_t STEER_INTEGRAL_LIMIT    = 10.;
 const int16_t RANGE                   = 360;
 
-const int16_t DRIVE_MOTOR_POWER_LIMIT = 200.;
+const int16_t DRIVE_MOTOR_POWER_LIMIT = 255.;
 const int16_t DRIVE_INTEGRAL_LIMIT    = 10.;
 
 const double STICK_DEADZONE       = 15.0;
 const double DRIVE_MAX_SPEED_MM_S = 1000.0;
 
 const uint32_t        CONTROL_CYCLE_MS   = 10; // 10ms = 100Hz
-const struct PidParam STEERING_PID_PARAM = {.p_gain = 2.5, .i_gain = 0.0, .d_gain = 0.0};
-const struct PidParam DRIVE_PID_PARAM    = {.p_gain = 1.2, .i_gain = 0.0, .d_gain = 0.0};
+const struct PidParam STEERING_PID_PARAM = {.p_gain = 4.4, .i_gain = 0.2, .d_gain = 0.0};
+const struct PidParam DRIVE_PID_PARAM    = {.p_gain = 3.7, .i_gain = 0.7, .d_gain = 0.0};
 
 const uint32_t CONTROL_LOOP_TASK_STACK_SIZE = 8192;
 const uint8_t  CONTROL_LOOP_TASK_PRIORITY   = 10;
