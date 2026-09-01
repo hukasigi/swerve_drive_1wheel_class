@@ -229,7 +229,7 @@ const double STICK_DEADZONE       = 15.0;
 const double DRIVE_MAX_SPEED_MM_S = 1000.0;
 
 const uint32_t        CONTROL_CYCLE_MS   = 10; // 10ms = 100Hz
-const struct PidParam STEERING_PID_PARAM = {.p_gain = 2.5, .i_gain = 0.0, .d_gain = 0.0};
+const struct PidParam STEERING_PID_PARAM = {.p_gain = 4.4, .i_gain = 0.2, .d_gain = 0.0};
 const struct PidParam DRIVE_PID_PARAM    = {.p_gain = 1.2, .i_gain = 0.0, .d_gain = 0.0};
 
 const uint32_t CONTROL_LOOP_TASK_STACK_SIZE = 8192;
@@ -335,8 +335,8 @@ void loop() {
 
     if (stickMag <= STICK_DEADZONE) {
         swerve_drive_1.set_target(steering_1.get_current_degree(), 0.0);
-        swerve_drive_2.set_target(steering_1.get_current_degree(), 0.0);
-        swerve_drive_3.set_target(steering_1.get_current_degree(), 0.0);
+        swerve_drive_2.set_target(steering_2.get_current_degree(), 0.0);
+        swerve_drive_3.set_target(steering_3.get_current_degree(), 0.0);
         drive_pid.reset();
         delay(10);
         return;
