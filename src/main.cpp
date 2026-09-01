@@ -8,13 +8,13 @@ using namespace nnct::interfaces;
 
 class Steering {
     public:
-        Steering(Motor* motor, IncrementalEncoder* encoder, LimitSwitch* limit_switch, AnglePID* pid, double offset_degree) {
+        Steering(Motor* motor, IncrementalEncoder* encoder, LimitSwitch* limit_switch, AnglePID* pid, double offset_deg) {
             this->motor         = motor;
             this->encoder       = encoder;
             this->limit_switch  = limit_switch;
             this->pid           = pid;
             this->target_degree = 0;
-            this->offset_degree = offset_degree;
+            this->offset_degree = offset_deg;
         }
         bool calibrate_zero() { // 0点合わせ
             uint32_t startTime = millis();
@@ -44,7 +44,7 @@ class Steering {
         }
         void   set_target(double degree) { this->target_degree = degree; }
         double get_current_degree() {
-            double degree = (this->encoder->getCount() * 360.0 / ENCODER_RESOLUTION) / STEER_GEAR_RATIO_MOTOR_TO_STEER;
+            double degree = (encoder->getCount() * 360.0 / ENCODER_RESOLUTION) / STEER_GEAR_RATIO_MOTOR_TO_STEER;
 
             // offset を角度計算時に補正
             degree -= this->offset_degree;
@@ -55,6 +55,8 @@ class Steering {
             double current_degree = this->get_current_degree();
             double duty           = this->pid->update(this->target_degree, current_degree, dt);
             double error          = pid->getError();
+
+            Serial.printf("current_deg%f target_deg_f%f", current_degree, target_degree);
 
             this->motor->run(duty, -1);
         }
@@ -67,13 +69,14 @@ class Steering {
                 a += 360.0;
             return a;
         }
+
         Motor*              motor;
         IncrementalEncoder* encoder;
         LimitSwitch*        limit_switch;
         AnglePID*           pid;
 
         double target_degree;
-        double offset_degree = 0.;
+        double offset_degree;
 
         static const int32_t    CALIBRATING_DUTY                = 150;
         static const uint32_t   CALIBRATING_TIMEOUT_MS          = 8000;
@@ -98,6 +101,7 @@ class Drive {
             double current_mm_s = this->get_current_mm_s();
             double drive_duty   = this->pid->update(this->target_mm_s, current_mm_s, dt);
             this->motor->run(drive_duty);
+            Serial.printf("rpm=%d target=%f current=%f\n", this->motor->rpm(), this->target_mm_s, current_mm_s);
         }
 
     private:
@@ -116,15 +120,6 @@ class SwerveDrive {
             this->drive    = drive;
             this->steering = steering;
         }
-
-        void set_target(double degree, double drive_target_mm_s) {
-            double current_degree = this->steering->get_current_degree();
-
-            OptimizedParams params = optimizeSteerAngle(degree, current_degree);
-
-            this->steering->set_target(params.degree);
-            this->drive->set_target(drive_target_mm_s * params.drive_dir);
-        }
         bool init() {
             if (!this->steering->calibrate_zero()) {
                 return false;
@@ -133,7 +128,15 @@ class SwerveDrive {
         }
         void update(double dt) {
             this->steering->update(dt);
-            this->drive->update(dt);
+            // this->drive->update(dt);
+        }
+        void set_target(double degree, double drive_target_mm_s) {
+            double current_degree = this->steering->get_current_degree();
+
+            OptimizedParams params = optimizeSteerAngle(degree, current_degree);
+
+            this->steering->set_target(params.degree);
+            this->drive->set_target(drive_target_mm_s * params.drive_dir);
         }
 
     private:
@@ -208,9 +211,9 @@ const pin_t STEERING_ENCODER_A_3 = 32;
 const pin_t STEERING_ENCODER_B_3 = 33;
 const pin_t STEERING_LIMIT_SW_3  = 34;
 
-const double OFFSET_DEG_1 = 135;
-const double OFFSET_DEG_2 = 225;
-const double OFFSET_DEG_3 = 345;
+const double OFFSET_DEG_1 = 315;
+const double OFFSET_DEG_2 = 75;
+const double OFFSET_DEG_3 = 195;
 
 const pin_t CAN_RX_PIN = 4; // 実際の配線に合わせて変更
 const pin_t CAN_TX_PIN = 5; // 実際の配線に合わせて変更
@@ -278,18 +281,16 @@ void control_loop_task(void* args) {
     TickType_t wake_time = xTaskGetTickCount();
 
     while (true) {
-        // swerve_drive_1.update(CONTROL_CYCLE_MS / 1000.0);
-        // swerve_drive_2.update(CONTROL_CYCLE_MS / 1000.0);
-        // swerve_drive_3.update(CONTROL_CYCLE_MS / 1000.0);
+        swerve_drive_1.update(CONTROL_CYCLE_MS / 1000.0);
+        swerve_drive_2.update(CONTROL_CYCLE_MS / 1000.0);
+        swerve_drive_3.update(CONTROL_CYCLE_MS / 1000.0);
 
         // ドライブモータの指令値を CAN で送信
-        // if (!can.send(&drive_motor_1, &drive_motor_2, 0, &drive_motor_3)) {
-
-        //     // Serial.println("Drive CAN send failed");
-        // }
+        if (!can.send(&drive_motor_1, &drive_motor_2, 0, &drive_motor_3)) {
+            Serial.println("Drive CAN send failed");
+        }
+        vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(CONTROL_CYCLE_MS));
     }
-
-    vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(CONTROL_CYCLE_MS));
 }
 
 void setup() {
