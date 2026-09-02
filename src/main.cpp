@@ -39,15 +39,16 @@ class Steering {
                 }
             }
             this->motor->stop();
-            this->encoder->clear();
+
+            // offset を encoder count に埋め込む
+            int32_t offset_count =
+                static_cast<int32_t>(this->offset_degree * ENCODER_RESOLUTION * STEER_GEAR_RATIO_MOTOR_TO_STEER / 360.0);
+            this->encoder->setCount(offset_count);
             return true;
         }
         void   set_target(double degree) { this->target_degree = degree; }
         double get_current_degree() {
             double degree = (encoder->getCount() * 360.0 / ENCODER_RESOLUTION) / STEER_GEAR_RATIO_MOTOR_TO_STEER;
-
-            // offset を角度計算時に補正
-            degree -= this->offset_degree;
 
             return normalizeAngleDeg(degree);
         }
@@ -56,7 +57,7 @@ class Steering {
             double duty           = this->pid->update(this->target_degree, current_degree, dt);
             double error          = pid->getError();
 
-            Serial.printf("current_deg%f target_deg_f%f", current_degree, target_degree);
+            // Serial.printf("current_deg%f target_deg_f%f\r\n", current_degree, target_degree);
 
             this->motor->run(duty, -1);
         }
@@ -101,7 +102,7 @@ class Drive {
             double current_mm_s = this->get_current_mm_s();
             double drive_duty   = this->pid->update(this->target_mm_s, current_mm_s, dt);
             this->motor->run(drive_duty);
-            Serial.printf("rpm=%d target=%f current=%f\n", this->motor->rpm(), this->target_mm_s, current_mm_s);
+            // Serial.printf("rpm=%d target=%f current=%f\n", this->motor->rpm(), this->target_mm_s, current_mm_s);
         }
 
     private:
@@ -134,6 +135,9 @@ class SwerveDrive {
             double current_degree = this->steering->get_current_degree();
 
             OptimizedParams params = optimizeSteerAngle(degree, current_degree);
+
+            // Serial.printf("target=%7.2f current=%7.2f error=%7.2f optimized=%7.2f drive_dir=%d\n", degree, current_degree,
+            //               normalizeAngleDeg(degree - current_degree), params.degree, params.drive_dir);
 
             this->steering->set_target(params.degree);
             this->drive->set_target(drive_target_mm_s * params.drive_dir);
@@ -187,17 +191,41 @@ struct PidParam {
 using pin_t = uint8_t;
 using ch_t  = uint8_t;
 
-const pin_t STEERING_MOTOR_DIR = 23;
-const pin_t STEERING_MOTOR_PWM = 22;
-const ch_t  STEERING_MOTOR_CH  = 0;
-const id_t  DRIVE_MOTOR_ID     = 0x01;
-const pin_t STEERING_ENCODER_A = 27;
-const pin_t STEERING_ENCODER_B = 14;
-const pin_t STEERING_LIMIT_SW  = 36;
+// const pin_t STEERING_MOTOR_DIR = 23;
+// const pin_t STEERING_MOTOR_PWM = 22;
+// const ch_t  STEERING_MOTOR_CH  = 0;
+// const id_t  DRIVE_MOTOR_ID     = 0x01;
+// const pin_t STEERING_ENCODER_A = 27;
+// const pin_t STEERING_ENCODER_B = 14;
+// const pin_t STEERING_LIMIT_SW  = 36;
+// const pin_t CAN_RX_PIN         = 4; // 実際の配線に合わせて変更
+// const pin_t CAN_TX_PIN         = 5; // 実際の配線に合わせて変更
+
+// const double OFFSET_1 = 45.;
+
+const pin_t STEERING_MOTOR_DIR = 21;
+const pin_t STEERING_MOTOR_PWM = 19;
+const ch_t  STEERING_MOTOR_CH  = 1;
+const id_t  DRIVE_MOTOR_ID     = 0x02;
+const pin_t STEERING_ENCODER_A = 25;
+const pin_t STEERING_ENCODER_B = 26;
+const pin_t STEERING_LIMIT_SW  = 39;
 const pin_t CAN_RX_PIN         = 4; // 実際の配線に合わせて変更
 const pin_t CAN_TX_PIN         = 5; // 実際の配線に合わせて変更
 
-const double OFFSET_1 = 315.;
+const double OFFSET_1 = 165.;
+
+// const pin_t STEERING_MOTOR_DIR = 18;
+// const pin_t STEERING_MOTOR_PWM = 17;
+// const ch_t  STEERING_MOTOR_CH  = 2;
+// const id_t  DRIVE_MOTOR_ID     = 0x04;
+// const pin_t STEERING_ENCODER_A = 32;
+// const pin_t STEERING_ENCODER_B = 33;
+// const pin_t STEERING_LIMIT_SW  = 34;
+// const pin_t CAN_RX_PIN         = 4; // 実際の配線に合わせて変更
+// const pin_t CAN_TX_PIN         = 5; // 実際の配線に合わせて変更
+
+// const double OFFSET_1 = 285.;
 
 const int16_t STEER_MOTOR_POWER_LIMIT = 200.;
 const int16_t STEER_INTEGRAL_LIMIT    = 10.;
@@ -211,7 +239,7 @@ const double DRIVE_MAX_SPEED_MM_S = 1000.0;
 
 const uint32_t        CONTROL_CYCLE_MS   = 10; // 10ms = 100Hz
 const struct PidParam STEERING_PID_PARAM = {.p_gain = 4.4, .i_gain = 0.2, .d_gain = 0.0};
-const struct PidParam DRIVE_PID_PARAM    = {.p_gain = 3.7, .i_gain = 0.7, .d_gain = 0.0};
+const struct PidParam DRIVE_PID_PARAM    = {.p_gain = 3.3, .i_gain = 0.7, .d_gain = 0.0};
 
 const uint32_t CONTROL_LOOP_TASK_STACK_SIZE = 8192;
 const uint8_t  CONTROL_LOOP_TASK_PRIORITY   = 10;
@@ -240,7 +268,7 @@ void control_loop_task(void* args) {
         swerve_drive.update(CONTROL_CYCLE_MS / 1000.0);
 
         // ドライブモータの指令値を CAN で送信
-        if (!can.send(&drive_motor)) {
+        if (!can.send(0, &drive_motor, 0, 0)) {
             // Serial.println("Drive CAN send failed");
         }
         vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(CONTROL_CYCLE_MS));
