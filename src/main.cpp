@@ -39,15 +39,16 @@ class Steering {
                 }
             }
             this->motor->stop();
-            this->encoder->clear();
+
+            // offset を encoder count に埋め込む
+            int32_t offset_count =
+                static_cast<int32_t>(this->offset_degree * ENCODER_RESOLUTION * STEER_GEAR_RATIO_MOTOR_TO_STEER / 360.0);
+            this->encoder->setCount(offset_count);
             return true;
         }
         void   set_target(double degree) { this->target_degree = degree; }
         double get_current_degree() {
             double degree = (encoder->getCount() * 360.0 / ENCODER_RESOLUTION) / STEER_GEAR_RATIO_MOTOR_TO_STEER;
-
-            // offset を角度計算時に補正
-            degree -= this->offset_degree;
 
             return normalizeAngleDeg(degree);
         }
@@ -56,7 +57,7 @@ class Steering {
             double duty           = this->pid->update(this->target_degree, current_degree, dt);
             double error          = pid->getError();
 
-            Serial.printf("current_deg%f target_deg_f%f", current_degree, target_degree);
+            // Serial.printf("current_deg%f target_deg_f%f\r\n", current_degree, target_degree);
 
             this->motor->run(duty, -1);
         }
@@ -101,7 +102,7 @@ class Drive {
             double current_mm_s = this->get_current_mm_s();
             double drive_duty   = this->pid->update(this->target_mm_s, current_mm_s, dt);
             this->motor->run(drive_duty);
-            Serial.printf("rpm=%d target=%f current=%f\n", this->motor->rpm(), this->target_mm_s, current_mm_s);
+            // Serial.printf("rpm=%d target=%f current=%f\n", this->motor->rpm(), this->target_mm_s, current_mm_s);
         }
 
     private:
@@ -134,6 +135,9 @@ class SwerveDrive {
             double current_degree = this->steering->get_current_degree();
 
             OptimizedParams params = optimizeSteerAngle(degree, current_degree);
+
+            // Serial.printf("target=%7.2f current=%7.2f error=%7.2f optimized=%7.2f drive_dir=%d\n", degree, current_degree,
+            //               normalizeAngleDeg(degree - current_degree), params.degree, params.drive_dir);
 
             this->steering->set_target(params.degree);
             this->drive->set_target(drive_target_mm_s * params.drive_dir);
@@ -211,15 +215,15 @@ const pin_t STEERING_ENCODER_A_3 = 32;
 const pin_t STEERING_ENCODER_B_3 = 33;
 const pin_t STEERING_LIMIT_SW_3  = 34;
 
-const double OFFSET_DEG_1 = 315;
-const double OFFSET_DEG_2 = 75;
-const double OFFSET_DEG_3 = 195;
+const double OFFSET_DEG_1 = 45.;
+const double OFFSET_DEG_2 = 165.;
+const double OFFSET_DEG_3 = 285.;
 
 const pin_t CAN_RX_PIN = 4; // 実際の配線に合わせて変更
 const pin_t CAN_TX_PIN = 5; // 実際の配線に合わせて変更
 
-const int16_t STEER_MOTOR_POWER_LIMIT = 200.;
-const int16_t STEER_INTEGRAL_LIMIT    = 10.;
+const int16_t STEER_MOTOR_POWER_LIMIT = 200;
+const int16_t STEER_INTEGRAL_LIMIT    = 10;
 const int16_t RANGE                   = 360;
 
 const int16_t DRIVE_MOTOR_POWER_LIMIT = 50.;
