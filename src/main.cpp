@@ -90,17 +90,16 @@ class Drive {
         Drive(RobomasMotor* motor, IncrementalPID* pid) {
             this->motor       = motor;
             this->pid         = pid;
-            this->target_mm_s = 0.0;
+            this->target_duty = 0.0;
         }
-        void   set_target(double drive_target_mm_s) { this->target_mm_s = drive_target_mm_s; }
+        void   set_target(double drive_target_power) { this->target_duty = drive_target_power; }
         double get_current_mm_s() { // rpm -> mm/s
             double       motor_rpm = this->motor->rpm();
             const double wheel_rpm = motor_rpm / DRIVE_GEAR_RATIO;
             return wheel_rpm * 2.0 * M_PI * DRIVE_RADIUS / 60.0;
         }
         void update(double dt) {
-            double current_mm_s = this->get_current_mm_s();
-            double drive_duty   = this->pid->update(this->target_mm_s, current_mm_s, dt);
+            double drive_duty = target_duty;
             this->motor->run(drive_duty);
             // Serial.printf("rpm=%d target=%f current=%f\n", this->motor->rpm(), this->target_mm_s, current_mm_s);
         }
@@ -109,7 +108,7 @@ class Drive {
         RobomasMotor*   motor;
         IncrementalPID* pid;
 
-        double target_mm_s;
+        double target_duty;
 
         static constexpr double DRIVE_RADIUS     = 50.0;       // mm
         static constexpr double DRIVE_GEAR_RATIO = 19.0 / 1.0; // モーター:ホイールの速度比
@@ -129,7 +128,7 @@ class SwerveDrive {
         }
         void update(double dt) {
             this->steering->update(dt);
-            // this->drive->update(dt);
+            this->drive->update(dt);
         }
         void set_target(double degree, double drive_target_mm_s) {
             double current_degree = this->steering->get_current_degree();
@@ -332,8 +331,9 @@ void loop() {
         return;
     }
 
-    int rx = PS4.RStickX();
-    int ry = PS4.RStickY();
+    int     rx     = PS4.RStickX();
+    int     ry     = PS4.RStickY();
+    uint8_t r2_val = PS4.R2Value();
 
     double stickMag = hypot((double)rx, (double)ry);
 
@@ -350,15 +350,15 @@ void loop() {
 
     double maxStickMag = 127.0 * sqrt(2.0);
 
-    double drive_target_mm_s = (stickMag - STICK_DEADZONE) / (maxStickMag - STICK_DEADZONE) * DRIVE_MAX_SPEED_MM_S;
+    // double drive_target_duty = stickMag / maxStickMag * 100;
 
-    drive_target_mm_s = constrain(drive_target_mm_s, 0.0, DRIVE_MAX_SPEED_MM_S);
+    double drive_target_duty = r2_val;
 
     static uint32_t last_log_ms = 0;
     uint32_t        now         = millis();
-    swerve_drive_1.set_target(degree, drive_target_mm_s);
-    swerve_drive_2.set_target(degree, drive_target_mm_s);
-    swerve_drive_3.set_target(degree, drive_target_mm_s);
+    swerve_drive_1.set_target(degree, drive_target_duty);
+    swerve_drive_2.set_target(degree, drive_target_duty);
+    swerve_drive_3.set_target(degree, drive_target_duty);
 
     swerve_drive_1.update(CONTROL_CYCLE_MS / 1000.0);
     swerve_drive_2.update(CONTROL_CYCLE_MS / 1000.0);
