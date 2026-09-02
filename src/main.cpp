@@ -226,7 +226,7 @@ const int16_t STEER_MOTOR_POWER_LIMIT = 200;
 const int16_t STEER_INTEGRAL_LIMIT    = 10;
 const int16_t RANGE                   = 360;
 
-const int16_t DRIVE_MOTOR_POWER_LIMIT = 50.;
+const int16_t DRIVE_MOTOR_POWER_LIMIT = 255.;
 const int16_t DRIVE_INTEGRAL_LIMIT    = 10.;
 
 const double STICK_DEADZONE       = 15.0;
