@@ -171,7 +171,7 @@ class SwerveDrive {
             drive->set_target_mm_s(drive_target_mm_s * params.drive_dir);
         }
 
-        void stop_drive() { drive->set_target_mm_s(0.0); }
+        void stop_drive() { drive->stop(); }
         void update(double dt) {
             this->steering->update(dt);
             this->drive->update(dt);
@@ -483,6 +483,8 @@ void loop() {
     uint8_t r2_val = PS4.R2Value();
 
     handle_controller_input(rx, ry, r2_val);
+
+    // set_robot_velocity(target_data.x_mm_s, target_data.y_mm_s, target_data.theta_deg_s);
 
     delay(LOOP_DELAY_MS);
 }
