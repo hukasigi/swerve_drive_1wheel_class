@@ -243,8 +243,8 @@ RobomasMotor drive_motor_1(DRIVE_MOTOR_ID_1);
 RobomasMotor drive_motor_2(DRIVE_MOTOR_ID_2);
 RobomasMotor drive_motor_3(DRIVE_MOTOR_ID_3);
 
-OdometryData odometry_data;
-CAN          can(CAN_RX_PIN, CAN_TX_PIN);
+target_vec_data target_data;
+CAN             can(CAN_RX_PIN, CAN_TX_PIN);
 
 IncrementalPID drive_pid_1(DRIVE_PID_PARAM.p_gain, DRIVE_PID_PARAM.i_gain, DRIVE_PID_PARAM.d_gain, -DRIVE_MOTOR_POWER_LIMIT,
                            DRIVE_MOTOR_POWER_LIMIT, -DRIVE_INTEGRAL_LIMIT, DRIVE_INTEGRAL_LIMIT);
@@ -371,9 +371,9 @@ struct ModulePosition {
 // 実機の車輪位置に合わせて変更してください
 // x: 前後方向、y: 左右方向
 const ModulePosition MODULE_POSITIONS[NUM_SWERVE_MODULES] = {
-    {150.0, 0.0   }, // module 1
-    {-75.0, 130.0 }, // module 2
-    {-75.0, -130.0}, // module 3
+    {0,        390.06 }, // module 1
+    {-337.802, -195.03}, // module 2
+    {337.802,  -195.03}, // module 3
 };
 
 void set_robot_velocity(double vx_mm_s, double vy_mm_s, double omega_deg_s) {
@@ -459,7 +459,7 @@ void setup() {
         }
     }
 
-    can.setOdometryData(&odometry_data);
+    can.setOdometryData(&target_data);
 
     if (!initialize_swerve_drives()) {
         while (true) {
