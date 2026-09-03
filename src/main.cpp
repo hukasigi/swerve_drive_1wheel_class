@@ -26,6 +26,7 @@ class Steering {
                         this->motor->stop();
                         return false;
                     }
+                    delay(1);
                 }
                 this->motor->stop();
                 this->encoder->clear();
@@ -37,6 +38,7 @@ class Steering {
                     this->motor->stop();
                     return false;
                 }
+                delay(1);
             }
             this->motor->stop();
 
@@ -126,11 +128,8 @@ class SwerveDrive {
             }
             return true;
         }
-        void update(double dt) {
-            this->steering->update(dt);
-            this->drive->update(dt);
-        }
-        void set_target(double degree, double drive_target_mm_s) {
+
+        void set_target(double degree, double drive_target_duty) {
             double current_degree = this->steering->get_current_degree();
 
             OptimizedParams params = optimizeSteerAngle(degree, current_degree);
@@ -139,7 +138,14 @@ class SwerveDrive {
             //               normalizeAngleDeg(degree - current_degree), params.degree, params.drive_dir);
 
             this->steering->set_target(params.degree);
-            this->drive->set_target(drive_target_mm_s * params.drive_dir);
+            this->drive->set_target(drive_target_duty * params.drive_dir);
+        }
+
+        void stop_drive() { drive->set_target(0.0); }
+
+        void update(double dt) {
+            this->steering->update(dt);
+            this->drive->update(dt);
         }
 
     private:
@@ -233,7 +239,7 @@ const int16_t DRIVE_MOTOR_POWER_LIMIT = 255.;
 const int16_t DRIVE_INTEGRAL_LIMIT    = 10.;
 
 // コントローラ
-const double     STICK_DEADZONE       = 15.0;
+const double     MAGNITUDE_DEADZONE   = 15.0;
 const double     DRIVE_MAX_SPEED_MM_S = 1000.0;
 const uint32_t   CONTROL_CYCLE_MS     = 10; // 10ms = 100Hz
 constexpr double CONTROL_CYCLE_S      = CONTROL_CYCLE_MS / 1000.0;
@@ -248,18 +254,6 @@ constexpr uint8_t  CONTROL_LOOP_TASK_PRIORITY   = 10;
 constexpr uint32_t LOOP_DELAY_MS                = 10;
 
 TaskHandle_t control_loop_task_handle;
-
-// ステアリング・ドライブシステムの配列
-struct SwerveModule {
-        Motor*              steering_motor;
-        IncrementalEncoder* steering_encoder;
-        LimitSwitch*        steering_limit_switch;
-        AnglePID*           steering_pid;
-        Steering*           steering;
-        RobomasMotor*       drive_motor;
-        Drive*              drive;
-        SwerveDrive*        swerve_drive;
-};
 
 Motor              steering_motor_1(STEERING_MOTOR_DIR_1, STEERING_MOTOR_PWM_1, STEERING_MOTOR_CH_1);
 IncrementalEncoder steering_encoder_1(STEERING_ENCODER_A_1, STEERING_ENCODER_B_1);
@@ -288,12 +282,16 @@ RobomasMotor drive_motor_3(DRIVE_MOTOR_ID_3);
 
 RobomasCAN can(CAN_RX_PIN, CAN_TX_PIN);
 
-IncrementalPID drive_pid(DRIVE_PID_PARAM.p_gain, DRIVE_PID_PARAM.i_gain, DRIVE_PID_PARAM.d_gain, -DRIVE_MOTOR_POWER_LIMIT,
-                         DRIVE_MOTOR_POWER_LIMIT, -DRIVE_INTEGRAL_LIMIT, DRIVE_INTEGRAL_LIMIT);
+IncrementalPID drive_pid_1(DRIVE_PID_PARAM.p_gain, DRIVE_PID_PARAM.i_gain, DRIVE_PID_PARAM.d_gain, -DRIVE_MOTOR_POWER_LIMIT,
+                           DRIVE_MOTOR_POWER_LIMIT, -DRIVE_INTEGRAL_LIMIT, DRIVE_INTEGRAL_LIMIT);
+IncrementalPID drive_pid_2(DRIVE_PID_PARAM.p_gain, DRIVE_PID_PARAM.i_gain, DRIVE_PID_PARAM.d_gain, -DRIVE_MOTOR_POWER_LIMIT,
+                           DRIVE_MOTOR_POWER_LIMIT, -DRIVE_INTEGRAL_LIMIT, DRIVE_INTEGRAL_LIMIT);
+IncrementalPID drive_pid_3(DRIVE_PID_PARAM.p_gain, DRIVE_PID_PARAM.i_gain, DRIVE_PID_PARAM.d_gain, -DRIVE_MOTOR_POWER_LIMIT,
+                           DRIVE_MOTOR_POWER_LIMIT, -DRIVE_INTEGRAL_LIMIT, DRIVE_INTEGRAL_LIMIT);
 
-Drive drive_1(&drive_motor_1, &drive_pid);
-Drive drive_2(&drive_motor_2, &drive_pid);
-Drive drive_3(&drive_motor_3, &drive_pid);
+Drive drive_1(&drive_motor_1, &drive_pid_1);
+Drive drive_2(&drive_motor_2, &drive_pid_2);
+Drive drive_3(&drive_motor_3, &drive_pid_3);
 
 SwerveDrive swerve_drive_1(&drive_1, &steering_1);
 SwerveDrive swerve_drive_2(&drive_2, &steering_2);
@@ -302,40 +300,103 @@ SwerveDrive swerve_drive_3(&drive_3, &steering_3);
 SwerveDrive*     swerve_drives[]    = {&swerve_drive_1, &swerve_drive_2, &swerve_drive_3};
 constexpr size_t NUM_SWERVE_MODULES = 3;
 
-void control_loop_task(void* args) {
-    TickType_t wake_time = xTaskGetTickCount();
+struct CalibrationContext {
+        // どの独ステ
+        SwerveDrive* module;
+        // どのイベントグループ
+        EventGroupHandle_t events;
+        // どの完了ビット
+        EventBits_t done_bit;
+        // 原点取り成功したかどうか
+        bool success;
+};
 
-    while (true) {
-        for (size_t i = 0; i < NUM_SWERVE_MODULES; i++) {
-            swerve_drives[i]->update(CONTROL_CYCLE_S);
-        }
+void calibration_task(void* parameter) {
+    // calibrationContextに変換
+    auto* context = static_cast<CalibrationContext*>(parameter);
 
-        // ドライブモータの指令値を CAN で送信
-        if (!can.send(&drive_motor_1, &drive_motor_2, 0, &drive_motor_3)) {
-            Serial.println("Drive CAN send failed");
-        }
-        vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(CONTROL_CYCLE_MS));
+    // 0点取り実行
+    context->success = context->module->init();
+
+    if (!context->success) {
+        Serial.println("Calibration failed");
     }
+    // 終わったら通知
+    xEventGroupSetBits(context->events, context->done_bit);
+    // タスク終了
+    vTaskDelete(nullptr);
 }
 
 bool initialize_swerve_drives() {
-    for (size_t i = 0; i < NUM_SWERVE_MODULES; i++) {
-        if (!swerve_drives[i]->init()) {
-            Serial.printf("SwerveDrive_%d init failed\n", i + 1);
+    // FreeRTOSのイベントグループを作ってる。通知をまとめて管理できる。
+    EventGroupHandle_t events = xEventGroupCreate();
+    // イベントグループの作成失敗
+    if (events == nullptr) {
+        return false;
+    }
+
+    // CalibrationContextの作成
+    CalibrationContext contexts[NUM_SWERVE_MODULES];
+    // 作成に成功したタスクの完了ビット
+    EventBits_t created_bits = 0;
+
+    for (size_t i = 0; i < NUM_SWERVE_MODULES; ++i) {
+        // Contextを設定
+        contexts[i] = {
+            swerve_drives[i],
+            events,
+            // 符号なし整数をビット操作　完了ビットを分けてる
+            static_cast<EventBits_t>(1U << i),
+            false,
+        };
+
+        // キャリブレーションタスクを作ってる。3つのキャリブレーションを並行に実行
+        if (xTaskCreate(calibration_task, "CalibrationTask", 4096, &contexts[i], 10, nullptr) != pdPASS) {
+
+            // ここまでに作成されたタスクがあれば、
+            // それらの終了を待つ
+            if (created_bits != 0) {
+                xEventGroupWaitBits(events, created_bits, pdTRUE, pdTRUE, portMAX_DELAY);
+            }
+            vEventGroupDelete(events);
+            return false;
+        }
+
+        // このタスクの作成に成功した
+        created_bits |= static_cast<EventBits_t>(1U << i);
+    }
+
+    // すべてのモジュールが原点取りに成功したかを表す。1000 - 0001 = 0111
+    const EventBits_t all_done = static_cast<EventBits_t>((1U << NUM_SWERVE_MODULES) - 1U);
+
+    // 全モジュールのキャリブレーションが終わるまで待つ
+    xEventGroupWaitBits(events, all_done, pdTRUE, pdTRUE, portMAX_DELAY);
+
+    // 全モジュールの成功/失敗を確認
+    for (size_t i = 0; i < NUM_SWERVE_MODULES; ++i) {
+        if (!contexts[i].success) {
+            vEventGroupDelete(events);
             return false;
         }
     }
+
+    // EventGroupはもう不要
+    vEventGroupDelete(events);
+
     return true;
 }
 
-void handle_controller_input(int x_vec, int y_vec, uint8_t drive_power) {
-    double stickMag = hypot((double)x_vec, (double)y_vec);
+void drive_pid_reset() {
+    drive_pid_1.reset();
+    drive_pid_2.reset();
+    drive_pid_3.reset();
+}
 
-    if (stickMag <= STICK_DEADZONE) {
-        for (size_t i = 0; i < NUM_SWERVE_MODULES; i++) {
-            swerve_drives[i]->set_target(0.0, 0.0);
-        }
-        drive_pid.reset();
+void handle_controller_input(int x_vec, int y_vec, uint8_t drive_power) {
+    double magnitude = hypot((double)x_vec, (double)y_vec);
+
+    if (magnitude <= MAGNITUDE_DEADZONE) {
+        stop_swerve_drives();
         return;
     }
 
@@ -347,9 +408,35 @@ void handle_controller_input(int x_vec, int y_vec, uint8_t drive_power) {
     }
 }
 
+void stop_swerve_drives() {
+    for (size_t i = 0; i < NUM_SWERVE_MODULES; ++i) {
+        swerve_drives[i]->stop_drive();
+    }
+    drive_pid_reset();
+}
+
 void update_swerve_drives() {
     for (size_t i = 0; i < NUM_SWERVE_MODULES; i++) {
         swerve_drives[i]->update(CONTROL_CYCLE_S);
+    }
+}
+
+void can_send() {
+    // ドライブモータの指令値を CAN で送信
+    if (!can.send(&drive_motor_1, &drive_motor_2, 0, &drive_motor_3)) {
+        Serial.println("Drive CAN send failed");
+    }
+}
+
+void control_loop_task(void* args) {
+    TickType_t wake_time = xTaskGetTickCount();
+
+    while (true) {
+        update_swerve_drives();
+
+        can_send();
+
+        vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(CONTROL_CYCLE_MS));
     }
 }
 
@@ -371,6 +458,7 @@ void setup() {
 
 void loop() {
     if (!PS4.isConnected()) {
+        stop_swerve_drives();
         Serial.println("PS4 not connected");
         delay(100);
         return;
@@ -381,7 +469,6 @@ void loop() {
     uint8_t r2_val = PS4.R2Value();
 
     handle_controller_input(rx, ry, r2_val);
-    update_swerve_drives();
 
     delay(LOOP_DELAY_MS);
 }
