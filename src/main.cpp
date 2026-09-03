@@ -1,6 +1,7 @@
 #include "AnglePid.h"
 #include "IncrementalPid.h"
 #include "PS4Controller.h"
+#include "constants.hpp"
 #include "nnct/interfaces/interfaces.hpp"
 #include <Arduino.h>
 
@@ -81,39 +82,64 @@ class Steering {
         double target_degree;
         double offset_degree;
 
-        static const int32_t    CALIBRATING_DUTY                = 150;
-        static const uint32_t   CALIBRATING_TIMEOUT_MS          = 8000;
-        static const uint32_t   ENCODER_RESOLUTION              = 8192;
-        static constexpr double STEER_GEAR_RATIO_MOTOR_TO_STEER = 65.0 / 27.0;
+        static const uint32_t CALIBRATING_TIMEOUT_MS = 8000;
 };
 
 class Drive {
     public:
-        Drive(RobomasMotor* motor, IncrementalPID* pid) {
-            this->motor       = motor;
-            this->pid         = pid;
-            this->target_duty = 0.0;
+        enum class ControlMode {
+            Duty,
+            Speed
+        };
+        Drive(RobomasMotor* motor, IncrementalPID* pid)
+            : motor(motor), pid(pid), mode(ControlMode::Duty), target_duty(0.0), target_mm_s(0.0) {}
+
+        // duty指定
+        void set_target_duty(double duty) {
+            mode        = ControlMode::Duty;
+            target_duty = duty;
         }
-        void   set_target(double drive_target_power) { this->target_duty = drive_target_power; }
+
+        // 速度指定[mm/s]
+        void set_target_mm_s(double speed_mm_s) {
+            mode        = ControlMode::Speed;
+            target_mm_s = speed_mm_s;
+        }
+
         double get_current_mm_s() { // rpm -> mm/s
             double       motor_rpm = this->motor->rpm();
             const double wheel_rpm = motor_rpm / DRIVE_GEAR_RATIO;
             return wheel_rpm * 2.0 * M_PI * DRIVE_RADIUS / 60.0;
         }
+
         void update(double dt) {
-            double drive_duty = target_duty;
-            this->motor->run(drive_duty);
-            // Serial.printf("rpm=%d target=%f current=%f\n", this->motor->rpm(), this->target_mm_s, current_mm_s);
+            double drive_duty;
+
+            if (mode == ControlMode::Speed) {
+                const double current_mm_s = get_current_mm_s();
+
+                drive_duty = pid->update(target_mm_s, current_mm_s, dt);
+            } else {
+                drive_duty = target_duty;
+            }
+
+            motor->run(drive_duty);
+        }
+
+        void stop() {
+            mode        = ControlMode::Duty;
+            target_duty = 0.0;
+            target_mm_s = 0.0;
+            motor->stop();
         }
 
     private:
         RobomasMotor*   motor;
         IncrementalPID* pid;
 
-        double target_duty;
-
-        static constexpr double DRIVE_RADIUS     = 50.0;       // mm
-        static constexpr double DRIVE_GEAR_RATIO = 19.0 / 1.0; // モーター:ホイールの速度比
+        ControlMode mode;
+        double      target_duty;
+        double      target_mm_s;
 };
 
 class SwerveDrive {
@@ -129,20 +155,23 @@ class SwerveDrive {
             return true;
         }
 
-        void set_target(double degree, double drive_target_duty) {
-            double current_degree = this->steering->get_current_degree();
+        void set_target_duty(double degree, double drive_target_duty) {
+            double          current_degree = steering->get_current_degree();
+            OptimizedParams params         = optimizeSteerAngle(degree, current_degree);
 
-            OptimizedParams params = optimizeSteerAngle(degree, current_degree);
-
-            // Serial.printf("target=%7.2f current=%7.2f error=%7.2f optimized=%7.2f drive_dir=%d\n", degree, current_degree,
-            //               normalizeAngleDeg(degree - current_degree), params.degree, params.drive_dir);
-
-            this->steering->set_target(params.degree);
-            this->drive->set_target(drive_target_duty * params.drive_dir);
+            steering->set_target(params.degree);
+            drive->set_target_duty(drive_target_duty * params.drive_dir);
         }
 
-        void stop_drive() { drive->set_target(0.0); }
+        void set_target_mm_s(double degree, double drive_target_mm_s) {
+            double          current_degree = steering->get_current_degree();
+            OptimizedParams params         = optimizeSteerAngle(degree, current_degree);
 
+            steering->set_target(params.degree);
+            drive->set_target_mm_s(drive_target_mm_s * params.drive_dir);
+        }
+
+        void stop_drive() { drive->set_target_mm_s(0.0); }
         void update(double dt) {
             this->steering->update(dt);
             this->drive->update(dt);
@@ -187,72 +216,6 @@ class SwerveDrive {
         }
 };
 
-struct PidParam {
-        double p_gain;
-        double i_gain;
-        double d_gain;
-};
-
-using pin_t = uint8_t;
-using ch_t  = uint8_t;
-
-// ステアリング1
-const pin_t  STEERING_MOTOR_DIR_1 = 23;
-const pin_t  STEERING_MOTOR_PWM_1 = 22;
-const ch_t   STEERING_MOTOR_CH_1  = 0;
-const id_t   DRIVE_MOTOR_ID_1     = 0x01;
-const pin_t  STEERING_ENCODER_A_1 = 27;
-const pin_t  STEERING_ENCODER_B_1 = 14;
-const pin_t  STEERING_LIMIT_SW_1  = 36;
-const double OFFSET_DEG_1         = 45.;
-
-// ステアリング2
-const pin_t  STEERING_MOTOR_DIR_2 = 21;
-const pin_t  STEERING_MOTOR_PWM_2 = 19;
-const ch_t   STEERING_MOTOR_CH_2  = 1;
-const id_t   DRIVE_MOTOR_ID_2     = 0x02;
-const pin_t  STEERING_ENCODER_A_2 = 25;
-const pin_t  STEERING_ENCODER_B_2 = 26;
-const pin_t  STEERING_LIMIT_SW_2  = 39;
-const double OFFSET_DEG_2         = 165.;
-
-// ステアリング3
-const pin_t  STEERING_MOTOR_DIR_3 = 18;
-const pin_t  STEERING_MOTOR_PWM_3 = 17;
-const ch_t   STEERING_MOTOR_CH_3  = 2;
-const id_t   DRIVE_MOTOR_ID_3     = 0x04;
-const pin_t  STEERING_ENCODER_A_3 = 32;
-const pin_t  STEERING_ENCODER_B_3 = 33;
-const pin_t  STEERING_LIMIT_SW_3  = 34;
-const double OFFSET_DEG_3         = 285.;
-
-const pin_t CAN_RX_PIN = 4; // 実際の配線に合わせて変更
-const pin_t CAN_TX_PIN = 5; // 実際の配線に合わせて変更
-
-// ステア制御パラメータ
-const int16_t STEER_MOTOR_POWER_LIMIT = 200;
-const int16_t STEER_INTEGRAL_LIMIT    = 10;
-const int16_t RANGE                   = 360;
-
-// ドライブ制御パラメータ
-const int16_t DRIVE_MOTOR_POWER_LIMIT = 255.;
-const int16_t DRIVE_INTEGRAL_LIMIT    = 10.;
-
-// コントローラ
-const double     MAGNITUDE_DEADZONE   = 15.0;
-const double     DRIVE_MAX_SPEED_MM_S = 1000.0;
-const uint32_t   CONTROL_CYCLE_MS     = 10; // 10ms = 100Hz
-constexpr double CONTROL_CYCLE_S      = CONTROL_CYCLE_MS / 1000.0;
-
-// PIDパラメータ
-const struct PidParam STEERING_PID_PARAM = {.p_gain = 4.4, .i_gain = 0.2, .d_gain = 0.0};
-const struct PidParam DRIVE_PID_PARAM    = {.p_gain = 1.2, .i_gain = 0.0, .d_gain = 0.0};
-
-// FreeRTOS
-constexpr uint32_t CONTROL_LOOP_TASK_STACK_SIZE = 8192;
-constexpr uint8_t  CONTROL_LOOP_TASK_PRIORITY   = 10;
-constexpr uint32_t LOOP_DELAY_MS                = 10;
-
 TaskHandle_t control_loop_task_handle;
 
 Motor              steering_motor_1(STEERING_MOTOR_DIR_1, STEERING_MOTOR_PWM_1, STEERING_MOTOR_CH_1);
@@ -280,7 +243,8 @@ RobomasMotor drive_motor_1(DRIVE_MOTOR_ID_1);
 RobomasMotor drive_motor_2(DRIVE_MOTOR_ID_2);
 RobomasMotor drive_motor_3(DRIVE_MOTOR_ID_3);
 
-RobomasCAN can(CAN_RX_PIN, CAN_TX_PIN);
+OdometryData odometry_data;
+CAN          can(CAN_RX_PIN, CAN_TX_PIN);
 
 IncrementalPID drive_pid_1(DRIVE_PID_PARAM.p_gain, DRIVE_PID_PARAM.i_gain, DRIVE_PID_PARAM.d_gain, -DRIVE_MOTOR_POWER_LIMIT,
                            DRIVE_MOTOR_POWER_LIMIT, -DRIVE_INTEGRAL_LIMIT, DRIVE_INTEGRAL_LIMIT);
@@ -392,6 +356,60 @@ void drive_pid_reset() {
     drive_pid_3.reset();
 }
 
+void stop_swerve_drives() {
+    for (size_t i = 0; i < NUM_SWERVE_MODULES; ++i) {
+        swerve_drives[i]->stop_drive();
+    }
+    drive_pid_reset();
+}
+
+struct ModulePosition {
+        double x_mm;
+        double y_mm;
+};
+
+// 実機の車輪位置に合わせて変更してください
+// x: 前後方向、y: 左右方向
+const ModulePosition MODULE_POSITIONS[NUM_SWERVE_MODULES] = {
+    {150.0, 0.0   }, // module 1
+    {-75.0, 130.0 }, // module 2
+    {-75.0, -130.0}, // module 3
+};
+
+void set_robot_velocity(double vx_mm_s, double vy_mm_s, double omega_deg_s) {
+    const double omega_rad_s = omega_deg_s * M_PI / 180.0;
+
+    double wheel_speed[NUM_SWERVE_MODULES];
+    double wheel_angle[NUM_SWERVE_MODULES];
+    double max_speed = 0.0;
+
+    for (size_t i = 0; i < NUM_SWERVE_MODULES; ++i) {
+        const double x = MODULE_POSITIONS[i].x_mm;
+        const double y = MODULE_POSITIONS[i].y_mm;
+
+        // 各車輪位置での速度ベクトル
+        const double wheel_vx = vx_mm_s - omega_rad_s * y;
+        const double wheel_vy = vy_mm_s + omega_rad_s * x;
+
+        wheel_speed[i] = hypot(wheel_vx, wheel_vy);
+        wheel_angle[i] = atan2(wheel_vy, wheel_vx) * 180.0 / M_PI;
+
+        // 車輪で一番早いものを探す
+        if (wheel_speed[i] > max_speed) {
+            max_speed = wheel_speed[i];
+        }
+    }
+
+    // 最大速度を超えないように全輪を同じ比率でスケーリング
+    const double scale = max_speed > DRIVE_MAX_SPEED_MM_S ? DRIVE_MAX_SPEED_MM_S / max_speed : 1.0;
+
+    for (size_t i = 0; i < NUM_SWERVE_MODULES; ++i) {
+        const double speed = wheel_speed[i] * scale;
+
+        swerve_drives[i]->set_target_mm_s(wheel_angle[i], speed);
+    }
+}
+
 void handle_controller_input(int x_vec, int y_vec, uint8_t drive_power) {
     double magnitude = hypot((double)x_vec, (double)y_vec);
 
@@ -404,15 +422,8 @@ void handle_controller_input(int x_vec, int y_vec, uint8_t drive_power) {
     double drive_target_duty = drive_power;
 
     for (size_t i = 0; i < NUM_SWERVE_MODULES; i++) {
-        swerve_drives[i]->set_target(degree, drive_target_duty);
+        swerve_drives[i]->set_target_duty(degree, drive_target_duty);
     }
-}
-
-void stop_swerve_drives() {
-    for (size_t i = 0; i < NUM_SWERVE_MODULES; ++i) {
-        swerve_drives[i]->stop_drive();
-    }
-    drive_pid_reset();
 }
 
 void update_swerve_drives() {
@@ -447,6 +458,9 @@ void setup() {
         while (true) {
         }
     }
+
+    can.setOdometryData(&odometry_data);
+
     if (!initialize_swerve_drives()) {
         while (true) {
         }
