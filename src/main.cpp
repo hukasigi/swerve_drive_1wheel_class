@@ -471,20 +471,24 @@ void setup() {
 }
 
 void loop() {
-    if (!PS4.isConnected()) {
-        stop_swerve_drives();
-        Serial.println("PS4 not connected");
-        delay(100);
-        return;
-    }
+    // if (!PS4.isConnected()) {
+    //     stop_swerve_drives();
+    //     Serial.println("PS4 not connected");
+    //     delay(100);
+    //     return;
+    // }
 
-    int     rx     = PS4.RStickX();
-    int     ry     = PS4.RStickY();
-    uint8_t r2_val = PS4.R2Value();
+    // int     rx     = PS4.RStickX();
+    // int     ry     = PS4.RStickY();
+    // uint8_t r2_val = PS4.R2Value();
 
-    handle_controller_input(rx, ry, r2_val);
+    // handle_controller_input(rx, ry, r2_val);
 
-    // set_robot_velocity(target_data.x_mm_s, target_data.y_mm_s, target_data.theta_deg_s);
+    set_robot_velocity(target_data.x_mm_s, target_data.y_mm_s, target_data.theta_deg_s);
+    // set_robot_velocity(0, 0, 10);
+
+    // Serial.printf("x:%d y:%d deg:%d receive:%d\r\n", target_data.x_mm_s, target_data.y_mm_s, target_data.theta_deg_s,
+    //               target_data.received);
 
     delay(LOOP_DELAY_MS);
 }
